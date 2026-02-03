@@ -7,10 +7,12 @@ import (
 
 func TestLoadConfigParsesArgs(t *testing.T) {
 	resetEnv := setTestEnv(map[string]string{
-		"TELEGRAM_BOT_TOKEN": "token",
-		"CODEX_ARGS":         "--prompt {prompt} --flag",
-		"CODEX_PROMPT_MODE":  "arg",
-		"CODEX_DISABLE_CPR":  "false",
+		"TELEGRAM_BOT_TOKEN":       "token",
+		"TELEGRAM_TYPING_INTERVAL": "0",
+		"CODEX_ARGS":               "--prompt {prompt} --flag",
+		"CODEX_PROMPT_MODE":        "arg",
+		"CODEX_DISABLE_CPR":        "false",
+		"CODEX_PROGRESS_INTERVAL":  "0",
 	})
 	defer resetEnv()
 
@@ -30,6 +32,12 @@ func TestLoadConfigParsesArgs(t *testing.T) {
 	}
 	if cfg.CodexDisableCPR {
 		t.Fatalf("expected CodexDisableCPR to be false")
+	}
+	if cfg.CodexProgressInterval != 0 {
+		t.Fatalf("expected CodexProgressInterval to be 0")
+	}
+	if cfg.TelegramTypingInterval != 0 {
+		t.Fatalf("expected TelegramTypingInterval to be 0")
 	}
 }
 

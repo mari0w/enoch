@@ -9,21 +9,23 @@ import (
 )
 
 type Config struct {
-	TelegramBotToken      string
-	TelegramAllowedChatID string
-	TelegramPollInterval  time.Duration
-	CodexCommand          string
-	CodexArgs             []string
-	CodexPromptMode       string
-	CodexTimeout          time.Duration
-	CodexWorkdir          string
-	CodexDisableCPR       bool
-	CodexUseTTY           bool
-	LogLevel              string
-	LogFile               string
-	LogConsole            bool
-	LogColor              bool
-	LogTimeFormat         string
+	TelegramBotToken       string
+	TelegramAllowedChatID  string
+	TelegramPollInterval   time.Duration
+	TelegramTypingInterval time.Duration
+	CodexCommand           string
+	CodexArgs              []string
+	CodexPromptMode        string
+	CodexTimeout           time.Duration
+	CodexWorkdir           string
+	CodexDisableCPR        bool
+	CodexUseTTY            bool
+	CodexProgressInterval  time.Duration
+	LogLevel               string
+	LogFile                string
+	LogConsole             bool
+	LogColor               bool
+	LogTimeFormat          string
 }
 
 func Load() (Config, error) {
@@ -43,6 +45,10 @@ func Load() (Config, error) {
 		if err == nil && seconds > 0 {
 			pollInterval = time.Duration(seconds * float64(time.Second))
 		}
+	}
+	typingInterval, err := parseDurationSecondsEnv("TELEGRAM_TYPING_INTERVAL", 4*time.Second)
+	if err != nil {
+		return Config{}, err
 	}
 
 	codexCommand := strings.TrimSpace(os.Getenv("CODEX_COMMAND"))
@@ -87,6 +93,10 @@ func Load() (Config, error) {
 
 	codexDisableCPR := parseBoolEnv("CODEX_DISABLE_CPR", true)
 	codexUseTTY := parseBoolEnv("CODEX_USE_TTY", false)
+	codexProgressInterval, err := parseDurationSecondsEnv("CODEX_PROGRESS_INTERVAL", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
 
 	logLevel := strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL")))
 	if logLevel == "" {
@@ -105,21 +115,23 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		TelegramBotToken:      token,
-		TelegramAllowedChatID: allowedChat,
-		TelegramPollInterval:  pollInterval,
-		CodexCommand:          codexCommand,
-		CodexArgs:             codexArgs,
-		CodexPromptMode:       codexPromptMode,
-		CodexTimeout:          codexTimeout,
-		CodexWorkdir:          codexWorkdir,
-		CodexDisableCPR:       codexDisableCPR,
-		CodexUseTTY:           codexUseTTY,
-		LogLevel:              logLevel,
-		LogFile:               logFile,
-		LogConsole:            logConsole,
-		LogColor:              logColor,
-		LogTimeFormat:         logTimeFormat,
+		TelegramBotToken:       token,
+		TelegramAllowedChatID:  allowedChat,
+		TelegramPollInterval:   pollInterval,
+		TelegramTypingInterval: typingInterval,
+		CodexCommand:           codexCommand,
+		CodexArgs:              codexArgs,
+		CodexPromptMode:        codexPromptMode,
+		CodexTimeout:           codexTimeout,
+		CodexWorkdir:           codexWorkdir,
+		CodexDisableCPR:        codexDisableCPR,
+		CodexUseTTY:            codexUseTTY,
+		CodexProgressInterval:  codexProgressInterval,
+		LogLevel:               logLevel,
+		LogFile:                logFile,
+		LogConsole:             logConsole,
+		LogColor:               logColor,
+		LogTimeFormat:          logTimeFormat,
 	}, nil
 }
 
@@ -137,4 +149,19 @@ func parseBoolEnv(key string, defaultValue bool) bool {
 	default:
 		return defaultValue
 	}
+}
+
+func parseDurationSecondsEnv(key string, defaultValue time.Duration) (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue, nil
+	}
+	seconds, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number (seconds)", key)
+	}
+	if seconds <= 0 {
+		return 0, nil
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
 }

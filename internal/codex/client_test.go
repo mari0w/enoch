@@ -63,3 +63,15 @@ func TestIsTTYError(t *testing.T) {
 		t.Fatalf("unexpected tty error detection")
 	}
 }
+
+func TestTruncatePrompt(t *testing.T) {
+	if got := truncatePrompt("hello", 10); got != "hello" {
+		t.Fatalf("unexpected: %q", got)
+	}
+	if got := truncatePrompt("hello", 3); got != "hel..." {
+		t.Fatalf("unexpected: %q", got)
+	}
+	if got := truncatePrompt("\n  hi  \n", 10); got != "hi" {
+		t.Fatalf("unexpected: %q", got)
+	}
+}

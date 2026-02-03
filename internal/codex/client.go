@@ -23,6 +23,7 @@ type Client struct {
 	workdir    string
 	useTTY     bool
 	disableCPR bool
+	progress   time.Duration
 	logger     *logging.Logger
 }
 
@@ -35,6 +36,7 @@ func New(cfg config.Config, logger *logging.Logger) *Client {
 		workdir:    cfg.CodexWorkdir,
 		useTTY:     cfg.CodexUseTTY,
 		disableCPR: cfg.CodexDisableCPR,
+		progress:   cfg.CodexProgressInterval,
 		logger:     logger,
 	}
 }
@@ -51,6 +53,11 @@ func (c *Client) Run(prompt string) (string, error) {
 	args := make([]string, 0, len(c.args)+1)
 	args = append(args, c.args...)
 
+	promptPreview := truncatePrompt(prompt, 160)
+	if c.logger != nil {
+		c.logger.Debugf("codex invoke: cmd=%s args=%q mode=%s tty=%t prompt=%q", c.command, c.args, c.promptMode, c.useTTY, promptPreview)
+	}
+
 	if c.promptMode == "arg" {
 		var used bool
 		args, used = replacePromptPlaceholder(args, prompt)
@@ -63,19 +70,19 @@ func (c *Client) Run(prompt string) (string, error) {
 	defer cancel()
 
 	if c.useTTY {
-		output, err := c.runWithScript(ctx, prompt, args)
+		output, err := c.runWithScript(ctx, prompt, args, promptPreview)
 		if err != nil && isTTYError(err) {
 			if c.logger != nil {
 				c.logger.Warnf("codex tty error, retrying without tty: %v", err)
 			}
-			return c.runWithoutTTY(ctx, prompt, args)
+			return c.runWithoutTTY(ctx, prompt, args, promptPreview)
 		}
 		return output, err
 	}
-	return c.runWithoutTTY(ctx, prompt, args)
+	return c.runWithoutTTY(ctx, prompt, args, promptPreview)
 }
 
-func (c *Client) runWithScript(ctx context.Context, prompt string, args []string) (string, error) {
+func (c *Client) runWithScript(ctx context.Context, prompt string, args []string, promptPreview string) (string, error) {
 	scriptPath, err := exec.LookPath("script")
 	if err != nil {
 		if c.logger != nil {
@@ -93,10 +100,10 @@ func (c *Client) runWithScript(ctx context.Context, prompt string, args []string
 		cmd.Stdin = strings.NewReader(prompt + "\n")
 	}
 
-	return c.runCommand(ctx, cmd)
+	return c.runCommand(ctx, cmd, promptPreview)
 }
 
-func (c *Client) runWithoutTTY(ctx context.Context, prompt string, args []string) (string, error) {
+func (c *Client) runWithoutTTY(ctx context.Context, prompt string, args []string, promptPreview string) (string, error) {
 	cmd := exec.CommandContext(ctx, c.command, args...)
 	cmd.Dir = c.workdir
 	c.applyEnv(cmd)
@@ -105,16 +112,47 @@ func (c *Client) runWithoutTTY(ctx context.Context, prompt string, args []string
 		cmd.Stdin = strings.NewReader(prompt)
 	}
 
-	return c.runCommand(ctx, cmd)
+	return c.runCommand(ctx, cmd, promptPreview)
 }
 
-func (c *Client) runCommand(ctx context.Context, cmd *exec.Cmd) (string, error) {
+func (c *Client) runCommand(ctx context.Context, cmd *exec.Cmd, promptPreview string) (string, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		if c.logger != nil {
+			c.logger.Errorf("codex start failed: %v", err)
+		}
+		return "", fmt.Errorf("codex error: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	started := time.Now()
+	var ticker *time.Ticker
+	if c.progress > 0 {
+		ticker = time.NewTicker(c.progress)
+		defer ticker.Stop()
+	}
+
+	var err error
+	for {
+		select {
+		case err = <-errCh:
+			goto done
+		case <-ticker.C:
+			if c.logger != nil {
+				c.logger.Warnf("codex still running: elapsed=%s prompt=%q", time.Since(started).Truncate(time.Second), promptPreview)
+			}
+		}
+	}
+
+done:
 	if ctx.Err() == context.DeadlineExceeded {
 		if c.logger != nil {
 			c.logger.Errorf("codex timeout after %s", c.timeout)
@@ -215,4 +253,13 @@ func isTTYError(err error) bool {
 		return true
 	}
 	return false
+}
+
+func truncatePrompt(text string, limit int) string {
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.TrimSpace(text)
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "..."
 }

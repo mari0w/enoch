@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"enoch/internal/codex"
@@ -44,45 +45,77 @@ func (b *Bot) Run() {
 			continue
 		}
 
+		if b.logger != nil {
+			b.logger.Debugf("telegram getUpdates ok: count=%d", len(updates))
+		}
+
 		for _, update := range updates {
 			id := update.UpdateID + 1
 			offset = &id
+
+			trace := fmt.Sprintf("update_id=%d", update.UpdateID)
 
 			msg := update.Message
 			if msg == nil {
 				msg = update.EditedMessage
 			}
-			if msg == nil || msg.Text == "" {
+			if msg == nil {
+				if b.logger != nil {
+					b.logger.Warnf("telegram update ignored: %s reason=no_message", trace)
+				}
+				continue
+			}
+			if msg.Text == "" {
+				if b.logger != nil {
+					b.logger.Warnf("telegram message ignored: %s chat_id=%d reason=empty_text", trace, msg.Chat.ID)
+				}
 				continue
 			}
 
 			chatID := msg.Chat.ID
-			if b.config.TelegramAllowedChatID != "" {
-				if strconv.FormatInt(chatID, 10) != b.config.TelegramAllowedChatID {
-					continue
-				}
+			if b.logger != nil {
+				preview := truncateText(msg.Text, 160)
+				b.logger.Infof("telegram message received: %s chat_id=%d text=%q", trace, chatID, preview)
 			}
 
-			if err := b.sendChatAction(chatID, "typing"); err != nil {
+			if !isAllowedChat(b.config.TelegramAllowedChatID, chatID) {
 				if b.logger != nil {
-					b.logger.Warnf("telegram sendChatAction failed: %v", err)
+					b.logger.Warnf("telegram message ignored: %s chat_id=%d allowed=%q", trace, chatID, b.config.TelegramAllowedChatID)
 				}
+				continue
 			}
 
+			stopTyping := b.startTypingLoop(chatID, trace)
+
+			start := time.Now()
+			if b.logger != nil {
+				b.logger.Infof("codex start: %s", trace)
+			}
 			reply, err := b.codex.Run(msg.Text)
+			stopTyping()
+			duration := time.Since(start)
 			if err != nil {
 				if b.logger != nil {
-					b.logger.Errorf("codex run failed: %v", err)
+					b.logger.Errorf("codex failed: %s duration=%s err=%v", trace, duration, err)
 				}
 				reply = "Error: " + err.Error()
+			} else if b.logger != nil {
+				b.logger.Infof("codex ok: %s duration=%s bytes=%d", trace, duration, len(reply))
 			}
-			if reply == "" {
+			if strings.TrimSpace(reply) == "" {
+				if b.logger != nil {
+					b.logger.Warnf("codex empty reply: %s duration=%s", trace, duration)
+				}
 				continue
 			}
 			if err := b.sendMessage(chatID, reply); err != nil {
 				if b.logger != nil {
-					b.logger.Errorf("telegram sendMessage failed: %v", err)
+					b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
 				}
+				continue
+			}
+			if b.logger != nil {
+				b.logger.Infof("telegram reply sent: %s chat_id=%d bytes=%d", trace, chatID, len(reply))
 			}
 		}
 
@@ -202,4 +235,56 @@ func (b *Bot) sendChatAction(chatID int64, action string) error {
 		return fmt.Errorf("sendChatAction status: %s", resp.Status)
 	}
 	return nil
+}
+
+func (b *Bot) startTypingLoop(chatID int64, trace string) func() {
+	if b.config.TelegramTypingInterval <= 0 {
+		return func() {}
+	}
+
+	if err := b.sendChatAction(chatID, "typing"); err != nil {
+		if b.logger != nil {
+			b.logger.Warnf("telegram sendChatAction failed: %s err=%v", trace, err)
+		}
+	} else if b.logger != nil {
+		b.logger.Debugf("telegram sendChatAction ok: %s action=typing", trace)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(b.config.TelegramTypingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := b.sendChatAction(chatID, "typing"); err != nil {
+					if b.logger != nil {
+						b.logger.Warnf("telegram sendChatAction failed: %s err=%v", trace, err)
+					}
+				} else if b.logger != nil {
+					b.logger.Debugf("telegram sendChatAction ok: %s action=typing", trace)
+				}
+			}
+		}
+	}()
+
+	return func() { close(done) }
+}
+
+func isAllowedChat(allowed string, chatID int64) bool {
+	if strings.TrimSpace(allowed) == "" {
+		return true
+	}
+	return strconv.FormatInt(chatID, 10) == allowed
+}
+
+func truncateText(text string, limit int) string {
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.TrimSpace(text)
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "..."
 }

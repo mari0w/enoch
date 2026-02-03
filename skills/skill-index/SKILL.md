@@ -20,6 +20,7 @@ description: List available project skills and briefly describe when to use each
 - os-automation-linux: Linux 自动化
 - doc-ops: 文档处理
 - data-ops: 数据处理
+- memory: 项目记忆读写
 - codex-cli: Codex CLI 非交互规范
 - codex-skills: 项目技能加载规范
 - project-guidelines: 项目改造规范

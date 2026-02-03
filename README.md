@@ -7,7 +7,9 @@ Go 进程负责轮询 Telegram bot，并把消息转发给本地 Codex CLI。Cod
 - `internal/telegram`：Telegram 轮询
 - `internal/codex`：Codex CLI 调用
 - `internal/logging`：日志模块（控制台 + 文件）
+- `memory/`：记忆文件目录（按天）
 - `skills/`：技能目录（由 Codex 读取）
+- `scripts/`：本地辅助脚本
 
 ## 快速开始
 1. 通过 @BotFather 创建 Telegram bot，拿到 token。
@@ -60,6 +62,23 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 - 如果 `CODEX_USE_TTY=true`，系统需要可用的 `script` 命令。
   - macOS 默认自带 `script`
   - Linux 通常来自 `util-linux`
+- 记忆系统脚本需要 Python 3：`python3 scripts/memory.py ...`
+
+## 记忆系统
+目录约定：`memory/YYYY-MM-DD.md`。模板与写作规范：`skills/memory/MEMORY_TEMPLATE.md`。
+
+常用脚本：
+
+```bash
+# 创建今天的记忆文件（如果缺失）
+python3 scripts/memory.py init
+
+# 追加一条带时间戳的记录
+python3 scripts/memory.py add "Decided to keep the memory format short."
+
+# 关键词搜索历史记忆
+python3 scripts/memory.py search memory
+```
 
 ## 技能目录
 当前示例技能：`skills/system/SKILL.md`。

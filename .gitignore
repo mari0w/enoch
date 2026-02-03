@@ -32,5 +32,8 @@ Thumbs.db
 # Temp
 /tmp/
 
+# Session logs
+sessions/
+
 # Coverage
 coverage.out

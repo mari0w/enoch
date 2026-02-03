@@ -13,6 +13,7 @@ type Config struct {
 	TelegramAllowedChatID  string
 	TelegramPollInterval   time.Duration
 	TelegramTypingInterval time.Duration
+	TelegramContextSize    int
 	CodexCommand           string
 	CodexArgs              []string
 	CodexPromptMode        string
@@ -47,6 +48,11 @@ func Load() (Config, error) {
 		}
 	}
 	typingInterval, err := parseDurationSecondsEnv("TELEGRAM_TYPING_INTERVAL", 4*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
+	contextSize, err := parseIntEnv("TELEGRAM_CONTEXT_SIZE", 0)
 	if err != nil {
 		return Config{}, err
 	}
@@ -119,6 +125,7 @@ func Load() (Config, error) {
 		TelegramAllowedChatID:  allowedChat,
 		TelegramPollInterval:   pollInterval,
 		TelegramTypingInterval: typingInterval,
+		TelegramContextSize:    contextSize,
 		CodexCommand:           codexCommand,
 		CodexArgs:              codexArgs,
 		CodexPromptMode:        codexPromptMode,
@@ -164,4 +171,19 @@ func parseDurationSecondsEnv(key string, defaultValue time.Duration) (time.Durat
 		return 0, nil
 	}
 	return time.Duration(seconds * float64(time.Second)), nil
+}
+
+func parseIntEnv(key string, defaultValue int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", key)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", key)
+	}
+	return parsed, nil
 }

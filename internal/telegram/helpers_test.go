@@ -25,3 +25,18 @@ func TestTruncateText(t *testing.T) {
 		t.Fatalf("unexpected: %q", got)
 	}
 }
+
+func TestSplitMessage(t *testing.T) {
+	chunks := splitMessage("hello", 10)
+	if len(chunks) != 1 || chunks[0] != "hello" {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+
+	chunks = splitMessage("abcdef", 2)
+	if len(chunks) != 3 {
+		t.Fatalf("unexpected chunk count: %d", len(chunks))
+	}
+	if chunks[0] != "ab" || chunks[1] != "cd" || chunks[2] != "ef" {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+}

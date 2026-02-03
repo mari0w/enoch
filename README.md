@@ -32,6 +32,7 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 - `TELEGRAM_ALLOWED_CHAT_ID`：限制只允许该 chat id 使用（建议填写）
 - `TELEGRAM_POLL_INTERVAL`：轮询间隔秒数
 - `TELEGRAM_TYPING_INTERVAL`：发送“正在输入”的间隔秒数（0 关闭）
+- `TELEGRAM_CONTEXT_SIZE`：每个 chat 保留最近 N 条上下文（0 关闭）
 
 - `CODEX_COMMAND`：Codex CLI 命令，默认 `codex`
 - `CODEX_ARGS`：额外参数，支持 `{prompt}` 占位符（默认 `exec {prompt}`，非交互）
@@ -40,7 +41,7 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 - `CODEX_DISABLE_CPR`：禁用终端光标位置读取（解决部分 CLI 的 `cursor position` 错误）
 - `CODEX_TIMEOUT`：超时时间（秒）
 - `CODEX_WORKDIR`：Codex 工作目录（默认 `.`，用于读取 `skills/`）
-- `CODEX_PROGRESS_INTERVAL`：Codex 执行超过该时间后每隔该秒数输出“仍在运行”日志（0 表示关闭）
+- `CODEX_PROGRESS_INTERVAL`：Codex 执行超过该时间后每隔该秒数输出“仍在运行”日志（0 表示关闭）；同时用于 Telegram 的“仍在处理中”提示（不会高于 30 秒一次）
 - `CODEX_HOME`：Codex 的 Home 目录（默认 `~/.codex`）。只有在你确实要隔离配置/凭据时才设置；否则建议保持默认值以复用已有登录缓存。
 
 - `LOG_LEVEL`：`debug|info|warn|error`
@@ -48,6 +49,12 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 - `LOG_CONSOLE`：是否输出到控制台
 - `LOG_COLOR`：控制台彩色输出
 - `LOG_TIME_FORMAT`：时间格式（默认 `2006-01-02 15:04:05`）
+
+## Telegram 指令
+- `/status`：查看运行状态、队列长度与上下文统计
+- `/stop`：暂停处理新任务（接收继续，排队不执行）
+- `/resume`：恢复处理
+- `/reset`：清空该 chat 的上下文
 
 ## 依赖说明
 - 如果 `CODEX_USE_TTY=true`，系统需要可用的 `script` 命令。

@@ -1,12 +1,18 @@
 package telegram
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type chatActionPayload struct {
 	ChatID int64  `json:"chat_id"`
@@ -15,28 +21,41 @@ type chatActionPayload struct {
 
 func TestSendChatAction(t *testing.T) {
 	var got chatActionPayload
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/sendChatAction" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if err := json.Unmarshal(body, &got); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	client := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/sendChatAction" {
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(bytes.NewBufferString("")),
+					Header:     make(http.Header),
+				}, nil
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Body:       io.NopCloser(bytes.NewBufferString("")),
+					Header:     make(http.Header),
+				}, nil
+			}
+			if err := json.Unmarshal(body, &got); err != nil {
+				return &http.Response{
+					StatusCode: http.StatusBadRequest,
+					Body:       io.NopCloser(bytes.NewBufferString("")),
+					Header:     make(http.Header),
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewBufferString("")),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
 
 	bot := &Bot{
-		client:  server.Client(),
-		baseURL: server.URL,
+		client:  client,
+		baseURL: "http://example.com",
 	}
 
 	if err := bot.sendChatAction(42, "typing"); err != nil {

@@ -164,11 +164,16 @@ done:
 	errOutput := strings.TrimSpace(stderr.String())
 
 	if err != nil {
-		cmdErr := buildCommandError(output, errOutput, err)
 		if c.logger != nil {
-			c.logger.Errorf("%s", cmdErr.Error())
+			if output != "" {
+				c.logger.Errorf("codex stdout: %s", output)
+			}
+			if errOutput != "" {
+				c.logger.Errorf("codex stderr: %s", errOutput)
+			}
+			c.logger.Errorf("codex exit error: %v", err)
 		}
-		return "", cmdErr
+		return "", fmt.Errorf("codex failed; check logs")
 	}
 
 	if output == "" && errOutput != "" {

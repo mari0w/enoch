@@ -9,6 +9,7 @@ func TestLoadConfigParsesArgs(t *testing.T) {
 	resetEnv := setTestEnv(map[string]string{
 		"TELEGRAM_BOT_TOKEN":       "token",
 		"TELEGRAM_TYPING_INTERVAL": "0",
+		"TELEGRAM_CONTEXT_SIZE":    "4",
 		"CODEX_ARGS":               "--prompt {prompt} --flag",
 		"CODEX_PROMPT_MODE":        "arg",
 		"CODEX_DISABLE_CPR":        "false",
@@ -38,6 +39,9 @@ func TestLoadConfigParsesArgs(t *testing.T) {
 	}
 	if cfg.TelegramTypingInterval != 0 {
 		t.Fatalf("expected TelegramTypingInterval to be 0")
+	}
+	if cfg.TelegramContextSize != 4 {
+		t.Fatalf("expected TelegramContextSize to be 4")
 	}
 }
 

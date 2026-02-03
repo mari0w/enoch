@@ -57,6 +57,9 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 - `/stop`：暂停处理新任务（接收继续，排队不执行）
 - `/resume`：恢复处理
 - `/reset`：清空该 chat 的上下文
+- `/memory_add` 或 `/memory add`：追加一条记忆（写入当天文件的 Context）
+- `/memory_search` 或 `/memory search`：按关键词检索记忆（最多返回 5 条，超长会发 txt）
+- `/memory_today` 或 `/memory today`：查看今天的 Summary（最多 20 行）
 
 ## 依赖说明
 - 如果 `CODEX_USE_TTY=true`，系统需要可用的 `script` 命令。
@@ -66,6 +69,12 @@ Codex CLI 需要认证才能调用模型。你可以选择以下方式之一：
 
 ## 记忆系统
 目录约定：`memory/YYYY-MM-DD.md`。模板与写作规范：`skills/memory/MEMORY_TEMPLATE.md`。
+
+**触发规则建议：**
+- 会话开始/任务开始：读取今天+昨天
+- 用户说“记住/记一下/记录”：立即写入
+- 阶段结束/会话收尾：写 Summary/Decisions/TODOs 简短复盘
+- 需要回溯历史：使用 search
 
 常用脚本：
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"enoch/internal/codex"
 	"enoch/internal/config"
 	"enoch/internal/logging"
+	"enoch/internal/memory"
 )
 
 type Bot struct {
@@ -27,6 +29,7 @@ type Bot struct {
 	paused       bool
 	running      bool
 	currentTrace string
+	memory       *memory.Manager
 	stateMu      sync.Mutex
 	contextMu    sync.Mutex
 	context      map[int64][]contextEntry
@@ -46,6 +49,13 @@ type contextEntry struct {
 
 func New(cfg config.Config, codexClient *codex.Client, logger *logging.Logger) *Bot {
 	client := &http.Client{Timeout: 70 * time.Second}
+	root, err := os.Getwd()
+	if err != nil {
+		root = "."
+		if logger != nil {
+			logger.Warnf("telegram bot getwd failed: %v", err)
+		}
+	}
 	return &Bot{
 		config:  cfg,
 		codex:   codexClient,
@@ -54,6 +64,7 @@ func New(cfg config.Config, codexClient *codex.Client, logger *logging.Logger) *
 		logger:  logger,
 		queue:   make(chan job, 64),
 		context: map[int64][]contextEntry{},
+		memory:  memory.NewManager(root),
 	}
 }
 
@@ -233,7 +244,13 @@ func (b *Bot) handleCommand(chatID int64, text, trace string) bool {
 	if len(parts) == 0 {
 		return false
 	}
-	switch parts[0] {
+	cmd := parts[0]
+	if cmd == "/memory" && len(parts) >= 2 {
+		cmd = "/memory_" + strings.ToLower(parts[1])
+		parts = append([]string{cmd}, parts[2:]...)
+	}
+
+	switch cmd {
 	case "/status":
 		status := b.statusSummary()
 		if err := b.sendMessage(chatID, status); err != nil && b.logger != nil {
@@ -255,6 +272,80 @@ func (b *Bot) handleCommand(chatID int64, text, trace string) bool {
 	case "/reset":
 		b.resetContext(chatID)
 		if err := b.sendMessage(chatID, "已清空会话上下文。"); err != nil && b.logger != nil {
+			b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+		}
+		return true
+	case "/memory_add":
+		message := strings.TrimSpace(strings.Join(parts[1:], " "))
+		if message == "" {
+			if err := b.sendMessage(chatID, "用法: /memory_add 记录内容 (或 /memory add 记录内容)"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		path, err := b.memory.AddEntry(message)
+		if err != nil {
+			if b.logger != nil {
+				b.logger.Errorf("memory add failed: %s err=%v", trace, err)
+			}
+			if err := b.sendMessage(chatID, "写入记忆失败，请稍后重试。"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		ack := fmt.Sprintf("已写入 %s", filepathBase(path))
+		if err := b.sendMessage(chatID, ack); err != nil && b.logger != nil {
+			b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+		}
+		return true
+	case "/memory_search":
+		keyword := strings.TrimSpace(strings.Join(parts[1:], " "))
+		if keyword == "" {
+			if err := b.sendMessage(chatID, "用法: /memory_search 关键词 (或 /memory search 关键词)"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		matches, err := b.memory.Search(keyword, 5)
+		if err != nil {
+			if b.logger != nil {
+				b.logger.Errorf("memory search failed: %s err=%v", trace, err)
+			}
+			if err := b.sendMessage(chatID, "检索失败，请稍后重试。"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		if len(matches) == 0 {
+			if err := b.sendMessage(chatID, "未找到匹配结果。"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		resultText := formatSearchResults(matches)
+		if err := b.sendTextOrDocument(chatID, "memory_search.txt", resultText); err != nil && b.logger != nil {
+			b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+		}
+		return true
+	case "/memory_today":
+		lines, err := b.memory.TodaySummaryLines(20)
+		if err != nil {
+			if b.logger != nil {
+				b.logger.Errorf("memory today failed: %s err=%v", trace, err)
+			}
+			if err := b.sendMessage(chatID, "今日记忆文件不存在或无法读取。"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		if len(lines) == 0 {
+			if err := b.sendMessage(chatID, "今日记忆摘要为空。"); err != nil && b.logger != nil {
+				b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
+			}
+			return true
+		}
+		result := fmt.Sprintf("今日记忆摘要 (%s):\n%s", b.memory.TodayDate(), strings.Join(lines, "\n"))
+		if err := b.sendMessage(chatID, result); err != nil && b.logger != nil {
 			b.logger.Errorf("telegram sendMessage failed: %s err=%v", trace, err)
 		}
 		return true
@@ -433,6 +524,14 @@ func (b *Bot) sendReply(chatID int64, text string) error {
 	return nil
 }
 
+func (b *Bot) sendTextOrDocument(chatID int64, filename, text string) error {
+	const limit = 3500
+	if len([]rune(text)) <= limit {
+		return b.sendMessage(chatID, text)
+	}
+	return b.sendDocument(chatID, filename, []byte(text))
+}
+
 func (b *Bot) sendDocument(chatID int64, filename string, content []byte) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -597,6 +696,25 @@ func splitMessage(text string, limit int) []string {
 		runes = runes[limit:]
 	}
 	return chunks
+}
+
+func formatSearchResults(matches []memory.Match) string {
+	var sb strings.Builder
+	sb.WriteString("检索结果(最多 5 条):\n")
+	for _, match := range matches {
+		line := fmt.Sprintf("%s:%d: %s", match.File, match.Line, match.Text)
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func filepathBase(path string) string {
+	path = strings.ReplaceAll(path, "\\", "/")
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 func (b *Bot) buildPrompt(chatID int64, text string) string {
